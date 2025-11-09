@@ -1,0 +1,30 @@
+# BackToLife - Python Desktop Application
+# Core GUI Framework
+customtkinter==5.2.2
+tkinter-dnd==0.1.0
+
+# Database
+sqlite3-python==1.0.0
+
+# Date/Time handling
+python-dateutil==2.8.2
+
+# Audio support for Shield Mode
+pygame==2.5.2
+pydub==0.25.1
+
+# Data processing
+pandas==2.1.4
+numpy==1.26.2
+
+# Notifications
+plyer==2.1.0
+
+# Configuration
+python-dotenv==1.0.0
+
+# Text-to-speech for accessibility
+pyttsx3==2.90
+
+# Logging
+loguru==0.7.2
