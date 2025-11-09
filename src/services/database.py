@@ -153,20 +153,6 @@ class Database:
             ''', (datetime.now().isoformat(),))
             self.conn.commit()
 
-    def get_user_profile(self):
-        """Get current user profile data"""
-        self.cursor.execute('SELECT * FROM user_profile WHERE id = 1')
-        row = self.cursor.fetchone()
-        if row:
-            return {
-                'level': row[2],
-                'xp': row[3],
-                'streak': row[4],
-                'best_streak': row[5],
-                'last_quest_date': row[6]
-            }
-        return None
-
     def update_user_xp(self, xp_amount):
         """Add XP and check for level up"""
         profile = self.get_user_profile()
@@ -240,32 +226,6 @@ class Database:
         self.conn.commit()
         return leveled_up
 
-    def get_quest_history(self, days=7):
-        """Get recent quest completion history"""
-        self.cursor.execute('''
-            SELECT qh.*, q.title, q.category
-            FROM quest_history qh
-            JOIN quests q ON qh.quest_id = q.id
-            ORDER BY qh.completed_date DESC
-            LIMIT ?
-        ''', (days * 5,))  # Assume up to 5 quests per day
-        return self.cursor.fetchall()
-
-    def save_reflection(self, mood_rating, what_worked="", what_was_hard="",
-                       grateful_for="", energy_level=5, relationship_stress=5, notes=""):
-        """Save daily reflection"""
-        today = datetime.now().date().isoformat()
-
-        self.cursor.execute('''
-            INSERT INTO reflections (
-                date, mood_rating, what_worked, what_was_hard,
-                grateful_for, energy_level, relationship_stress, notes
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (today, mood_rating, what_worked, what_was_hard,
-              grateful_for, energy_level, relationship_stress, notes))
-        self.conn.commit()
-
     def get_today_completed_quests(self):
         """Check if primary quest completed today"""
         today = datetime.now().date().isoformat()
@@ -324,3 +284,156 @@ class Database:
             'quests_by_category': quests_by_category,
             'quests_this_week': quests_this_week
         }
+
+    def get_quest(self, quest_id):
+        """Get quest by ID"""
+        self.cursor.execute('SELECT * FROM quests WHERE id = ?', (quest_id,))
+        return self.cursor.fetchone()
+
+    def get_quest_history(self, limit=10):
+        """Get recent quest completions with details"""
+        self.cursor.execute('''
+            SELECT
+                qh.id,
+                qh.quest_id,
+                qh.completed_date as completed_at,
+                qh.completion_time_seconds,
+                qh.xp_earned,
+                qh.was_primary_quest
+            FROM quest_history qh
+            ORDER BY qh.completed_date DESC
+            LIMIT ?
+        ''', (limit,))
+
+        results = []
+        for row in self.cursor.fetchall():
+            results.append({
+                'id': row[0],
+                'quest_id': row[1],
+                'completed_at': row[2],
+                'completion_time': row[3],
+                'xp_earned': row[4],
+                'was_primary': row[5]
+            })
+        return results
+
+    def get_user_profile(self):
+        """Get current user profile data"""
+        self.cursor.execute('SELECT COUNT(*) FROM quest_history')
+        quests_completed = self.cursor.fetchone()[0]
+
+        self.cursor.execute('SELECT * FROM user_profile WHERE id = 1')
+        row = self.cursor.fetchone()
+        if row:
+            return {
+                'level': row[2],
+                'xp': row[3],
+                'streak': row[4],
+                'best_streak': row[5],
+                'last_quest_date': row[6],
+                'quests_completed': quests_completed
+            }
+        return None
+
+    def get_best_streak(self):
+        """Get best streak"""
+        profile = self.get_user_profile()
+        return profile['best_streak'] if profile else 0
+
+    def get_domain_stats(self, domain):
+        """Get stats for specific domain"""
+        # Get total quests in domain
+        self.cursor.execute('''
+            SELECT COUNT(*) FROM quests WHERE category = ?
+        ''', (domain,))
+        total = self.cursor.fetchone()[0]
+
+        # Get completed quests in domain
+        self.cursor.execute('''
+            SELECT COUNT(DISTINCT qh.quest_id)
+            FROM quest_history qh
+            JOIN quests q ON qh.quest_id = q.id
+            WHERE q.category = ?
+        ''', (domain,))
+        completed = self.cursor.fetchone()[0]
+
+        return {
+            'total': total,
+            'completed': completed
+        }
+
+    def save_reflection(self, date, mood, energy_level, sleep_quality, gratitude, notes=None):
+        """Save daily reflection (updated signature)"""
+        self.cursor.execute('''
+            INSERT INTO reflections (
+                date, mood_rating, energy_level, grateful_for, notes
+            )
+            VALUES (?, ?, ?, ?, ?)
+        ''', (date, mood, energy_level, gratitude, notes))
+        self.conn.commit()
+
+    def get_reflection_by_date(self, date):
+        """Get reflection for specific date"""
+        self.cursor.execute('''
+            SELECT * FROM reflections WHERE date = ?
+        ''', (date,))
+        row = self.cursor.fetchone()
+        if row:
+            return {
+                'id': row[0],
+                'date': row[1],
+                'mood': row[2] if isinstance(row[2], str) else 'okay',
+                'energy_level': row[5] if len(row) > 5 else 5,
+                'sleep_quality': 'okay',  # Default for now
+                'gratitude': row[4] if len(row) > 4 else '',
+                'notes': row[7] if len(row) > 7 else ''
+            }
+        return None
+
+    def get_reflection_history(self, limit=7):
+        """Get recent reflections"""
+        self.cursor.execute('''
+            SELECT * FROM reflections
+            ORDER BY date DESC
+            LIMIT ?
+        ''', (limit,))
+
+        results = []
+        for row in self.cursor.fetchall():
+            results.append({
+                'id': row[0],
+                'date': row[1],
+                'mood': row[2] if isinstance(row[2], str) else 'okay',
+                'energy_level': row[5] if len(row) > 5 else 5,
+                'sleep_quality': 'okay',  # Default
+                'gratitude': row[4] if len(row) > 4 else '',
+                'notes': row[7] if len(row) > 7 else ''
+            })
+        return results
+
+    def log_shield_activation(self):
+        """Log shield mode activation"""
+        return self.record_shield_activation()
+
+    def clear_all_data(self):
+        """Clear all user data (DANGEROUS!)"""
+        # Clear all tables
+        self.cursor.execute('DELETE FROM quest_history')
+        self.cursor.execute('DELETE FROM reflections')
+        self.cursor.execute('DELETE FROM domain_tracking')
+        self.cursor.execute('DELETE FROM context_data')
+        self.cursor.execute('DELETE FROM shield_activations')
+        self.cursor.execute('DELETE FROM achievements')
+
+        # Reset user profile
+        self.cursor.execute('''
+            UPDATE user_profile
+            SET current_level = 1,
+                total_xp = 0,
+                current_streak = 0,
+                best_streak = 0,
+                last_quest_date = NULL
+            WHERE id = 1
+        ''')
+
+        self.conn.commit()
