@@ -16,6 +16,7 @@ class ContextEngine:
         """
         Main quest selection algorithm
         Analyzes user state and selects the most appropriate quest
+        Returns dict with 'quest' and 'reason' keys
         """
         # Get current context
         time_of_day = self.get_time_of_day()
@@ -39,7 +40,15 @@ class ContextEngine:
             priority_domain, difficulty, time_of_day
         )
 
-        return quest
+        # Generate reason for this quest selection
+        reason = self._generate_quest_reason(
+            priority_domain, difficulty, time_of_day, user_profile, last_reflection
+        )
+
+        return {
+            'quest': quest,
+            'reason': reason
+        }
 
     def get_time_of_day(self):
         """Categorize current time"""
@@ -290,3 +299,132 @@ class ContextEngine:
             return f"🌙 Evening: {base_why}"
 
         return base_why
+
+    def _generate_quest_reason(self, priority_domain, difficulty, time_of_day, user_profile, last_reflection):
+        """Generate human-readable reason for quest selection"""
+        reasons = []
+
+        # Domain-specific reasons
+        domain_reasons = {
+            'BODY_RECOVERY': "Your body needs gentle movement to rebuild strength",
+            'HYGIENE': "Self-care builds self-respect, one small step at a time",
+            'EATING_DRINKING': "Nourishing your body is the foundation of recovery",
+            'ORGANIZATION': "A clear space helps clear your mind",
+            'SOCIAL_RECOVERY': "Reconnecting with others, at your own pace",
+            'FINANCIAL': "Financial stability reduces stress and builds confidence",
+            'ACADEMIC': "Your education matters, even in tiny steps",
+            'CREATIVE': "Creativity is how your soul breathes",
+            'CRYPTO_AI': "Engaging your interests in a balanced way",
+            'FORTNITE': "Gaming as a tool for skill-building and joy"
+        }
+
+        reason = domain_reasons.get(priority_domain, "This quest is selected to help you move forward")
+
+        # Add context based on why this domain was chosen
+        if last_reflection:
+            energy = last_reflection.get('energy_level', 5)
+            if energy <= 3:
+                reason += ". Your energy is low, so we're keeping it gentle."
+            elif energy >= 7:
+                reason += ". You have good energy today - let's use it wisely."
+
+        # Add time context
+        if time_of_day == 'morning':
+            reason += " Perfect for starting your day."
+        elif time_of_day == 'evening':
+            reason += " A good way to wind down your day."
+
+        # Add streak encouragement
+        streak = user_profile.get('streak', 0)
+        if streak > 0:
+            reason += f" You're {streak} days strong!"
+
+        return reason
+
+    def get_pattern_insights(self):
+        """
+        Analyze user patterns and return insights
+        Returns list of insight dicts with 'title' and 'message'
+        """
+        insights = []
+        user_profile = self.db.get_user_profile()
+
+        # Insight 1: Completion patterns by time
+        self.db.cursor.execute('''
+            SELECT
+                CASE
+                    WHEN CAST(strftime('%H', completed_date) AS INTEGER) < 12 THEN 'Morning'
+                    WHEN CAST(strftime('%H', completed_date) AS INTEGER) < 17 THEN 'Afternoon'
+                    ELSE 'Evening'
+                END as time_period,
+                COUNT(*) as count
+            FROM quest_history
+            WHERE DATE(completed_date) >= DATE('now', '-30 days')
+            GROUP BY time_period
+            ORDER BY count DESC
+        ''')
+        time_results = self.db.cursor.fetchall()
+
+        if time_results and len(time_results) > 0:
+            best_time = time_results[0][0]
+            best_count = time_results[0][1]
+            total = sum(r[1] for r in time_results)
+            if total > 0:
+                percentage = int((best_count / total) * 100)
+                insights.append({
+                    'title': 'Best Time of Day',
+                    'message': f"You complete {percentage}% of your quests in the {best_time.lower()}. That's your power time!"
+                })
+
+        # Insight 2: Domain strengths
+        self.db.cursor.execute('''
+            SELECT q.category, COUNT(*) as count
+            FROM quest_history qh
+            JOIN quests q ON qh.quest_id = q.id
+            WHERE DATE(qh.completed_date) >= DATE('now', '-30 days')
+            GROUP BY q.category
+            ORDER BY count DESC
+            LIMIT 1
+        ''')
+        domain_result = self.db.cursor.fetchone()
+
+        if domain_result:
+            top_domain = domain_result[0].replace('_', ' ').title()
+            count = domain_result[1]
+            insights.append({
+                'title': 'Strongest Domain',
+                'message': f"{top_domain} is your most consistent area with {count} completed quests this month."
+            })
+
+        # Insight 3: Streak achievement
+        best_streak = user_profile.get('best_streak', 0)
+        current_streak = user_profile.get('streak', 0)
+
+        if best_streak > 0:
+            if current_streak == best_streak:
+                insights.append({
+                    'title': 'Record Streak!',
+                    'message': f"You're at your all-time best: {best_streak} days in a row. Legendary! 🏆"
+                })
+            else:
+                insights.append({
+                    'title': 'Previous Best',
+                    'message': f"Your best streak was {best_streak} days. You've proven you can do it again."
+                })
+
+        # Insight 4: Progress velocity
+        quests_completed = user_profile.get('quests_completed', 0)
+        if quests_completed >= 10:
+            insights.append({
+                'title': 'Total Progress',
+                'message': f"You've completed {quests_completed} quests total. Each one is proof you're rebuilding."
+            })
+
+        # If no insights, add encouragement
+        if not insights:
+            insights.append({
+                'title': 'Just Getting Started',
+                'message': "Complete more quests to unlock pattern insights about your progress!"
+            })
+
+        return insights

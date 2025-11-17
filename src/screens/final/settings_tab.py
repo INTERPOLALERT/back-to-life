@@ -402,7 +402,7 @@ Your data never leaves your device.
         """Update audio speed"""
         speed = int(value)
         self.speed_label.configure(text=f"{speed} WPM {'(Normal)' if speed == 150 else ''}")
-        self.audio.set_speed(speed)
+        self.audio.set_rate(speed)
 
     def update_volume(self, value):
         """Update audio volume"""
